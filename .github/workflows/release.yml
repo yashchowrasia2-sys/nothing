@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v (e.g. 1.1.0). Leave empty for a test build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -40,7 +45,10 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.${GITHUB_RUN_NUMBER}"; fi
+          INPUT_V="${{ github.event.inputs.version }}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"
+          elif [[ "$INPUT_V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then V="$INPUT_V"
+          else V="0.0.${GITHUB_RUN_NUMBER}"; fi
           echo "name=$V" >> "$GITHUB_OUTPUT"
           echo "code=$((GITHUB_RUN_NUMBER + 1))" >> "$GITHUB_OUTPUT"
 
@@ -73,9 +81,12 @@ jobs:
           path: dist/*
 
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' || github.event.inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: Glyph Studio v${{ steps.ver.outputs.name }}
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
