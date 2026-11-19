@@ -13,11 +13,24 @@ android {
         applicationId = "com.zenith.glyphstudio"
         minSdk = 33
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI passes -PversionCode / -PversionName (from the git tag); local builds use defaults
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0.0"
         // GitHub repo used by the self-updater (releases/latest must contain an .apk asset)
         buildConfigField("String", "GITHUB_OWNER", "\"yashchowrasia2-sys\"")
         buildConfigField("String", "GITHUB_REPO", "\"nothing\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            val ks = System.getenv("SIGNING_KEYSTORE_PATH")
+            if (ks != null) {
+                storeFile = file(ks)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -26,7 +39,8 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Sign with the SAME key every release, otherwise the updater's signature check rejects the APK.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (System.getenv("SIGNING_KEYSTORE_PATH") != null)
+                signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
     compileOptions {
