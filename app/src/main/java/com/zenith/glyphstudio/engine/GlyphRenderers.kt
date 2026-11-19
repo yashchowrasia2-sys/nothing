@@ -47,6 +47,7 @@ object GlyphRenderers {
         is EngineMode.Marquee -> marquee(mode)
         is EngineMode.Visualizer -> visualizer(ctx, mode.style)
         EngineMode.Pet -> pet(ctx)
+        EngineMode.TiltGame -> TiltDodgeGame.frames(ctx)
         is EngineMode.Pomodoro -> pomodoro(mode)
     }.flowOn(Dispatchers.Default)
 

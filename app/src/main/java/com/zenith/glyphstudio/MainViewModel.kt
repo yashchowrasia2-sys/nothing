@@ -3,7 +3,9 @@ package com.zenith.glyphstudio
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.zenith.glyphstudio.data.BuiltInPresets
 import com.zenith.glyphstudio.data.CELLS
+import com.zenith.glyphstudio.data.PresetCategory
 import com.zenith.glyphstudio.data.EngineMode
 import com.zenith.glyphstudio.data.GlyphAnimation
 import com.zenith.glyphstudio.data.GlyphFrame
@@ -112,11 +114,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun playMarquee(text: String, stepMs: Long, brightness: Int) = setMode(EngineMode.Marquee(text.take(120), stepMs, brightness))
     fun startVisualizer(style: VisualizerStyle) = setMode(EngineMode.Visualizer(style))
     fun startPet() = setMode(EngineMode.Pet)
+    fun startTiltGame() = setMode(EngineMode.TiltGame)
     fun startPomodoro(minutes: Int) = setMode(EngineMode.Pomodoro(minutes, System.currentTimeMillis()))
     fun stop() = setMode(EngineMode.Off)
 
     // ---------- Gallery ----------
-    fun saveCurrent() = viewModelScope.launch { storage.savePreset(_anim.value); message.value = "Saved \"${_anim.value.name}\"" }
+    fun saveCurrent() = viewModelScope.launch {
+        val a = _anim.value.let { if (" · " in it.name) it else it.copy(name = "${PresetCategory.MINE.prefix} · ${it.name}") }
+        // built-ins are read-only: saving an edited built-in creates a personal copy
+        val toSave = if (BuiltInPresets.isBuiltIn(a)) a.copy(id = System.currentTimeMillis().toString(36)) else a
+        _anim.value = toSave
+        storage.savePreset(toSave); message.value = "Saved \"${toSave.name}\""
+    }
     fun load(p: GlyphAnimation) { _anim.value = p.sanitized(); _frameIndex.value = 0; message.value = "Loaded into Studio" }
     fun apply(p: GlyphAnimation) = setMode(EngineMode.Art(p.sanitized()))
     fun delete(p: GlyphAnimation) = viewModelScope.launch { storage.deletePreset(p.id) }

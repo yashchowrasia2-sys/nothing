@@ -54,7 +54,12 @@ private fun App(vm: MainViewModel = viewModel()) {
     LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("Glyph Studio & HUD") }) },
+        topBar = {
+            CenterAlignedTopAppBar(title = {
+                Text("GLYPH STUDIO", fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    letterSpacing = androidx.compose.ui.unit.TextUnit(4f, androidx.compose.ui.unit.TextUnitType.Sp))
+            })
+        },
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
             NavigationBar {

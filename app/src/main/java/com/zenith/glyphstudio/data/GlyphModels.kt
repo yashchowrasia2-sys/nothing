@@ -71,5 +71,6 @@ sealed interface EngineMode {
     @Serializable @SerialName("text") data class Marquee(val text: String, val stepMs: Long = 90, val brightness: Int = 255) : EngineMode
     @Serializable @SerialName("viz") data class Visualizer(val style: VisualizerStyle = VisualizerStyle.BARS) : EngineMode
     @Serializable @SerialName("pet") data object Pet : EngineMode
+    @Serializable @SerialName("tilt") data object TiltGame : EngineMode
     @Serializable @SerialName("pomodoro") data class Pomodoro(val minutes: Int = 25, val startedAt: Long = System.currentTimeMillis()) : EngineMode
 }

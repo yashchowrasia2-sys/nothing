@@ -72,6 +72,12 @@ fun SmartHudScreen(vm: MainViewModel) {
             Button(vm::startPet) { Text("Wake Pet") }
         }
 
+        HudCard("Tilt Dodge · Mini Game", Icons.Default.SportsEsports) {
+            Text("Tilt the phone left/right to steer your ship and dodge meteors. Speed ramps up with your score.",
+                style = MaterialTheme.typography.bodySmall)
+            Button(vm::startTiltGame) { Text("Play on Glyph") }
+        }
+
         HudCard("Pomodoro Ring", Icons.Default.Timer) {
             Text("Focus length: ${pomodoroMin.toInt()} min")
             Slider(pomodoroMin, { pomodoroMin = it }, valueRange = 5f..60f, steps = 10)
@@ -101,5 +107,6 @@ fun EngineMode.label(): String = when (this) {
     is EngineMode.Marquee -> "Marquee · \"${text.take(16)}\""
     is EngineMode.Visualizer -> "Visualizer · ${style.name.lowercase()}"
     EngineMode.Pet -> "Pocket Pet"
+    EngineMode.TiltGame -> "Tilt Dodge"
     is EngineMode.Pomodoro -> "Pomodoro · $minutes min"
 }

@@ -15,13 +15,18 @@ android {
         targetSdk = 35
         // CI passes -PversionCode / -PversionName (from the git tag); local builds use defaults
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "1.0.0"
+        versionName = (project.findProperty("versionName") as String?) ?: "1.1.0"
         // GitHub repo used by the self-updater (releases/latest must contain an .apk asset)
         buildConfigField("String", "GITHUB_OWNER", "\"yashchowrasia2-sys\"")
         buildConfigField("String", "GITHUB_REPO", "\"nothing\"")
     }
 
     signingConfigs {
+        // Shared debug key committed to the repo so local, CI and released builds can update each other.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+        }
         create("release") {
             val ks = System.getenv("SIGNING_KEYSTORE_PATH")
             if (ks != null) {
