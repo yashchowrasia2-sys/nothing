@@ -192,43 +192,35 @@ object GlyphRenderers {
             return@callbackFlow
         }
         val smooth = FloatArray(BANDS); val peaks = FloatArray(BANDS)
-        fun push(bands: FloatArray) {
+        val agc = FloatArray(BANDS) { 1e-3f } // per-band running max → auto gain
+        val lock = Any()
+
+        fun push(raw: FloatArray) = synchronized(lock) {
+            val out = FloatArray(BANDS)
             for (i in 0 until BANDS) {
-                smooth[i] = if (bands[i] > smooth[i]) bands[i] else smooth[i] * 0.82f + bands[i] * 0.18f
-                peaks[i] = maxOf(peaks[i] * 0.94f, smooth[i])
+                agc[i] = maxOf(raw[i], agc[i] * 0.995f, 1e-3f)
+                // global floor so pure noise doesn't get amplified to full scale
+                val globalMax = agc.max()
+                val norm = raw[i] / maxOf(agc[i], globalMax * 0.25f)
+                out[i] = norm.coerceIn(0f, 1f)
+                smooth[i] = if (out[i] > smooth[i]) out[i] else smooth[i] * 0.80f + out[i] * 0.20f
+                peaks[i] = maxOf(peaks[i] * 0.93f, smooth[i])
             }
             trySend(if (style == VisualizerStyle.BARS) drawBars(smooth, peaks) else drawRing(smooth))
         }
 
-        var viz: Visualizer? = null
         var record: AudioRecord? = null
-        try {
-            viz = Visualizer(0).apply {
-                enabled = false
-                captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
-                scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-                setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                    override fun onWaveFormDataCapture(v: Visualizer?, w: ByteArray?, rate: Int) {}
-                    override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, rate: Int) {
-                        fft ?: return
-                        val n = fft.size / 2
-                        val mags = FloatArray(n) { k ->
-                            if (k == 0) kotlin.math.abs(fft[0].toFloat()) else hypot(fft[2 * k].toFloat(), fft[2 * k + 1].toFloat())
-                        }
-                        push(logBands(mags, 1f / 90f))
-                    }
-                }, (Visualizer.getMaxCaptureRate() / 2).coerceAtMost(20_000), false, true)
-                enabled = true
-            }
-        } catch (t: Throwable) {
-            viz?.release(); viz = null
-            // Fallback: microphone AudioRecord + in-house FFT
+        var micJob: kotlinx.coroutines.Job? = null
+        fun startMic() {
+            if (micJob != null) return
             val rate = 22_050; val n = 512
             val min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            record = AudioRecord(MediaRecorder.AudioSource.MIC, rate, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, maxOf(min, n * 4)).also { it.startRecording() }
-            val rec = record!!
-            launch(Dispatchers.IO) {
+            val rec = runCatching {
+                AudioRecord(MediaRecorder.AudioSource.MIC, rate, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, maxOf(min, n * 4)).also { it.startRecording() }
+            }.getOrNull() ?: return
+            record = rec
+            micJob = launch(Dispatchers.IO) {
                 val buf = ShortArray(n); val re = FloatArray(n); val im = FloatArray(n)
                 while (isActive) {
                     val read = rec.read(buf, 0, n)
@@ -238,30 +230,70 @@ object GlyphRenderers {
                         re[i] = (if (i < read) buf[i] / 32768f else 0f) * hann; im[i] = 0f
                     }
                     fft(re, im)
-                    val mags = FloatArray(n / 2) { hypot(re[it], im[it]) }
-                    push(logBands(mags, 1f / 6f))
-                    delay(33)
+                    push(logBands(FloatArray(n / 2) { hypot(re[it], im[it]) }))
+                }
+            }
+        }
+
+        // 1) System output mix (what's playing). Many players/offload paths deliver pure silence here,
+        //    so a watchdog switches to the microphone after ~2.5s of all-zero FFTs.
+        var viz: Visualizer? = null
+        var silentFrames = 0
+        var lastData = System.currentTimeMillis()
+        try {
+            viz = Visualizer(0).apply {
+                enabled = false
+                captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
+                scalingMode = Visualizer.SCALING_MODE_NORMALIZED
+                setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(v: Visualizer?, w: ByteArray?, rate: Int) {}
+                    override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, rate: Int) {
+                        fft ?: return
+                        lastData = System.currentTimeMillis()
+                        if (micJob != null) return
+                        val n = fft.size / 2
+                        val mags = FloatArray(n) { k ->
+                            if (k == 0) 0f else hypot(fft[2 * k].toFloat(), fft[2 * k + 1].toFloat())
+                        }
+                        if (mags.all { it < 1f }) silentFrames++ else silentFrames = 0
+                        push(logBands(mags))
+                    }
+                }, Visualizer.getMaxCaptureRate().coerceAtMost(20_000), false, true)
+                enabled = true
+            }
+        } catch (t: Throwable) {
+            viz?.release(); viz = null
+            startMic()
+        }
+        // Watchdog: silence or no callbacks → microphone fallback
+        launch {
+            while (isActive && micJob == null) {
+                delay(500)
+                val stalled = System.currentTimeMillis() - lastData > 2_500
+                if (silentFrames > 50 || stalled) {
+                    viz?.runCatching { enabled = false; release() }; viz = null
+                    startMic()
                 }
             }
         }
         awaitClose {
             viz?.runCatching { enabled = false; release() }
+            micJob?.cancel()
             record?.runCatching { stop(); release() }
         }
     }.conflate()
 
-    /** Log-spaced band energies normalised to 0..1. */
-    private fun logBands(mags: FloatArray, gain: Float): FloatArray {
+    /** Log-spaced raw band energies (unnormalised; AGC happens in push). */
+    private fun logBands(mags: FloatArray): FloatArray {
         val n = mags.size
         val out = FloatArray(BANDS)
-        val minBin = 1.0; val maxBin = (n - 1).toDouble()
+        val maxBin = (n - 1).toDouble()
         for (b in 0 until BANDS) {
-            val lo = (minBin * Math.pow(maxBin / minBin, b / BANDS.toDouble())).toInt().coerceIn(1, n - 1)
-            val hi = (minBin * Math.pow(maxBin / minBin, (b + 1) / BANDS.toDouble())).toInt().coerceIn(lo + 1, n)
+            val lo = Math.pow(maxBin, b / BANDS.toDouble()).toInt().coerceIn(1, n - 1)
+            val hi = Math.pow(maxBin, (b + 1) / BANDS.toDouble()).toInt().coerceIn(lo + 1, n)
             var sum = 0f
             for (k in lo until hi) sum += mags[k]
-            val avg = sum / (hi - lo)
-            out[b] = (ln(1f + avg * gain * (1 + b * 0.25f)) / ln(4f)).coerceIn(0f, 1f)
+            out[b] = ln(1f + sum / (hi - lo))
         }
         return out
     }
@@ -273,6 +305,7 @@ object GlyphRenderers {
             if (col.isEmpty()) continue
             val h = (v[x] * col.size).toInt()
             val bottom = col.max()
+            f[bottom * GRID + x] = 40 // baseline: always visible
             for (i in 0 until h) f[(bottom - i) * GRID + x] = 120 + 135 * i / col.size
             val pk = (peaks[x] * col.size).toInt().coerceIn(0, col.size - 1)
             if (pk > 0) f[(bottom - pk) * GRID + x] = 255
