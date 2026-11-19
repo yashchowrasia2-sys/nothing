@@ -1,0 +1,5 @@
+-keep class com.nothing.ketchum.** { *; }
+-keepattributes *Annotation*, InnerClasses
+-keep,includedescriptorclasses class com.zenith.glyphstudio.**$$serializer { *; }
+-keepclassmembers class com.zenith.glyphstudio.** { *** Companion; }
+-keepclasseswithmembers class com.zenith.glyphstudio.** { kotlinx.serialization.KSerializer serializer(...); }
