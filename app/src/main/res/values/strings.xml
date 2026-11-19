@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Glyph Studio</string>
+    <string name="toy_name">Glyph Studio HUD</string>
+    <string name="toy_summary">Custom art, marquee, visualizer, pocket pet and pomodoro</string>
+</resources>
